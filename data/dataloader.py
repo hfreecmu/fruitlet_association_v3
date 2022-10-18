@@ -7,8 +7,11 @@ import numpy as np
 def rand_flip(descs, kpts):
     rand_var = np.random.uniform()
     if rand_var < 0.5:
-        descs = torch.fliplr(descs)
-        kpts = torch.fliplr(kpts)
+        descs[0] = torch.fliplr(descs[0])
+        kpts[0] = torch.fliplr(kpts[0])
+
+        descs[1] = torch.fliplr(descs[1])
+        kpts[1] = torch.fliplr(kpts[1])
 
     return descs, kpts
 
@@ -19,10 +22,14 @@ def rand_drop(descs, kpts, is_tag, assoc_scores, detection_ids, assoc_ids):
     for i in range(descs.shape[0]):
         if is_tag[i]:
             should_keep[i]= True
-        elif is_assoc[i]:
-            prob_drop = np.random.uniform(0, 0.1)
-            rand_var = np.random.uniform()
-            should_keep[i] = rand_var >= prob_drop
+        elif assoc_ids[i] > -1:
+            inds = np.where(assoc_ids > -1)
+            if inds[0].shape[0] <= 2:
+                should_keep[i] = True
+            else:
+                prob_drop = np.random.uniform(0, 0.1)
+                rand_var = np.random.uniform()
+                should_keep[i] = rand_var >= prob_drop
         else:
             prob_drop = np.random.uniform(0.2, 0.6)
             rand_var = np.random.uniform()
@@ -38,24 +45,23 @@ def rand_drop(descs, kpts, is_tag, assoc_scores, detection_ids, assoc_ids):
     return descs, kpts, is_tag, assoc_scores, detection_ids, assoc_ids
 
 def rand_remove_assoc(assoc_scores, assoc_ids):
-    should_keep = [None]*descs.shape[0]
-
     rand_var = np.random.uniform()
     if rand_var > 0.08:
-        return
+        return assoc_scores, assoc_ids
 
     inds = np.where(assoc_ids > -1)
-    print(inds.shape)
-    sfd
 
-    rand_ind = np.random.randint(inds.shape[0])
-    assoc_inds[rand_ind] = -1
+    if inds[0].shape[0] <= 2:
+        return assoc_scores, assoc_ids
+
+    rand_ind = np.random.randint(inds[0].shape[0])
+    assoc_ids[rand_ind] = -1
     assoc_scores[rand_ind] = np.random.uniform(0.0, 0.2)
 
-    return descs, kpts, is_tag, assoc_scores, detection_ids, assoc_ids
+    return assoc_scores, assoc_ids
 
 def rand_assoc_scores(is_tag, assoc_scores):
-    rand_add = (np.random.uniform(size=assoc_scores.shape[0]) - 0.5)*0.02
+    rand_add = (torch.rand(size=assoc_scores.shape, device=assoc_scores.device) - 0.5)*0.02
     assoc_scores[is_tag == 0] = assoc_scores[is_tag == 0] + rand_add[is_tag == 0]
     assoc_scores[assoc_scores > 1] = 1
     assoc_scores[assoc_scores < 0] = 0
@@ -64,11 +70,24 @@ def rand_assoc_scores(is_tag, assoc_scores):
 
 #TODO add shift in extract_feature_descriptors
 def augment(descs, kpts, is_tag, assoc_scores, detection_ids, assoc_ids):
-    for i in range(2):
-        descs[i], kpts[i] = rand_flip(descs[i], kpts[i])
-        #assoc_scores[i], assoc_ids[i] = rand_remove_assoc[assoc_scores[i], assoc_ids[i]]
-        #descs[i], kpts[i], is_tag[i], assoc_scores[i], detection_ids[i], assoc_ids[i] = rand_drop(descs[i], kpts[i], is_tag[i], assoc_scores[i], detection_ids[i], assoc_ids[i])
-        #is_tag[i], assoc_scores[i] = rand_assoc_scores[is_tag[i], assoc_scores[i]]
+
+    descs, kpts = rand_flip(descs, kpts)
+    
+    assoc_ind_var = np.random.uniform()
+    if assoc_ind_var < 0.5:
+        assoc_ind_var = 0
+    else:
+        assoc_ind_var = 1 
+
+    rand_drop_assoc_var = np.random.uniform()
+    if rand_drop_assoc_var < 0.5:
+        assoc_scores[assoc_ind_var], assoc_ids[assoc_ind_var] = rand_remove_assoc(assoc_scores[assoc_ind_var], assoc_ids[assoc_ind_var])
+    else:
+        descs[assoc_ind_var], kpts[assoc_ind_var], is_tag[assoc_ind_var], assoc_scores[assoc_ind_var], detection_ids[assoc_ind_var], assoc_ids[assoc_ind_var] = rand_drop(descs[assoc_ind_var], kpts[assoc_ind_var], is_tag[assoc_ind_var], assoc_scores[assoc_ind_var], detection_ids[assoc_ind_var], assoc_ids[assoc_ind_var])
+
+
+    is_tag[0], assoc_scores[0] = rand_assoc_scores(is_tag[0], assoc_scores[0])
+    is_tag[1], assoc_scores[1] = rand_assoc_scores(is_tag[1], assoc_scores[1])
 
     return descs, kpts, is_tag, assoc_scores, detection_ids, assoc_ids
 
@@ -122,11 +141,14 @@ class AssociationDataSet(Dataset):
         assoc_ids = feature_dict['assoc_ids']
 
         detection_ids = [np.array(detection_ids_0), np.array(detection_ids_1)]
+        assoc_ids = [np.array(assoc_ids[0]), np.array(assoc_ids[1])]
 
         if self.augment:
             descs, kpts, is_tag, assoc_scores, detection_ids, assoc_ids = augment(descs, kpts, is_tag, assoc_scores, detection_ids, assoc_ids)
 
         assoc_ids_0, assoc_ids_1 = assoc_ids
+        assoc_ids_0 = assoc_ids_0.tolist()
+        assoc_ids_1 = assoc_ids_1.tolist()
 
         M = []
         found_matched_inds = set()
@@ -145,7 +167,8 @@ class AssociationDataSet(Dataset):
             
             if found:
                 M.append([i, match_ind])
-                
+
+        assert len(M) > 0
         M = torch.as_tensor(M, dtype=torch.long).cuda()
 
         return descs, kpts, width, height, is_tag, assoc_scores, M, detection_ids, img_loc
