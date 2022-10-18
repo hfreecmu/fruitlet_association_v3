@@ -1,0 +1,11 @@
+__pycache__/
+
+loss_plots/*
+checkpoints/*
+inference_results/*
+exps/*
+datasets/*
+
+*.pem
+
+*debug*
