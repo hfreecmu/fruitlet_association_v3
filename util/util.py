@@ -47,7 +47,7 @@ def write_dict(path_to_write, json_dict):
     with open(path_to_write, 'w') as f:
         json.dump(json_dict, f)
 
-def save_checkpoint(epoch, checkpoint_dir, model, accuracy=None, is_best=False):
+def save_checkpoint(epoch, checkpoint_dir, model, accuracy=None, loss=None, is_best=False):
     if not is_best:
         path = os.path.join(checkpoint_dir, 'epoch_%d.pth' % epoch)
         print('Saving checkpoint: ' + path)
@@ -55,7 +55,7 @@ def save_checkpoint(epoch, checkpoint_dir, model, accuracy=None, is_best=False):
         print('updating best')
         path = os.path.join(checkpoint_dir, 'best.pth')
 
-        is_best_json = {'save_epoch': epoch, 'accuracy': accuracy}
+        is_best_json = {'save_epoch': epoch, 'loss': loss, 'accuracy': accuracy}
         json_path = os.path.join(checkpoint_dir, 'best.json')
         write_dict(json_path, is_best_json)
     

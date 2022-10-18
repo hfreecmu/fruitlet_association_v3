@@ -41,7 +41,7 @@ def train(opt):
     data_size = len(dataloader)
 
     if opt.val_feature_dir is not None:
-        best_acc = None
+        best_loss = None
         val_dataloader = get_data_loader(opt, opt.val_feature_dir, False, opt.augment)
         val_loss_array = []
         val_acc_array = []
@@ -281,9 +281,9 @@ def train(opt):
 
             util.plot_val_losses(opt.plot_loss_dir, np.array(val_loss_array), np.array(val_acc_array), np.array(val_epochs))
 
-            if (best_acc is None) or (accuracy > best_acc):
-                best_acc = accuracy
-                util.save_checkpoint(save_epoch, opt.checkpoint_dir, model, accuracy=best_acc, is_best=True)
+            if (best_loss is None) or (val_losses < best_loss):
+                best_loss = val_losses
+                util.save_checkpoint(save_epoch, opt.checkpoint_dir, model, accuracy=accuracy, loss=val_losses, is_best=True)
 
             model.train()
             print('done validation')
