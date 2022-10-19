@@ -151,6 +151,7 @@ def infer(opt):
             data['assoc_scores'] = assoc_scores
             data['M'] = M
             data['return_matches'] = True
+            data['return_losses'] = True
 
             res = model(data)
 

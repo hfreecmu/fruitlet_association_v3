@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from models.encoder import DescriptorEncoder, KeypointEncoder
-from util import device
+#from ..models.encoder import DescriptorEncoder, KeypointEncoder
 
 def log_sinkhorn_iterations(Z: torch.Tensor, log_mu: torch.Tensor, log_nu: torch.Tensor, iters: int) -> torch.Tensor:
     """ Perform Sinkhorn Normalization in Log-space for stability"""
@@ -281,18 +281,19 @@ class FruitletAssociator(nn.Module):
 
         scores = log_optimal_transport(scores, self.bin_score, iters=self.config['sinkhorn_iterations'])
 
-        M = data['M']
         losses = []
-        for i in range(len(M)):
-            xs = M[i][:, 0]
-            ys = M[i][:, 1]
+        if data['return_losses']:
+            M = data['M']
+            for i in range(len(M)):
+                xs = M[i][:, 0]
+                ys = M[i][:, 1]
 
-            #TODO sum or mean
-            loss = torch.mean(-torch.log(scores[i, xs, ys].exp()))
-            loss = torch.reshape(loss, (1, -1))
-            losses.append(loss)
+                #TODO sum or mean
+                loss = torch.mean(-torch.log(scores[i, xs, ys].exp()))
+                loss = torch.reshape(loss, (1, -1))
+                losses.append(loss)
 
-        losses = torch.cat(losses, dim=0)
+            losses = torch.cat(losses, dim=0)
         
         if not data['return_matches']:
             return {'losses': losses}

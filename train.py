@@ -163,6 +163,7 @@ def train(opt):
                 data['assoc_scores'] = [batch_assoc_scores_0, batch_assoc_scores_1]
                 data['M'] = batch_M
                 data['return_matches'] = False
+                data['return_losses'] = True
 
                 res = model(data)
 
@@ -225,6 +226,7 @@ def train(opt):
                     data['assoc_scores'] = assoc_scores
                     data['M'] = M
                     data['return_matches'] = True
+                    data['return_losses'] = True
 
                     res = model(data)
 
