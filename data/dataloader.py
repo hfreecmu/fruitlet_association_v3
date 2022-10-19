@@ -107,6 +107,7 @@ class AssociationDataSet(Dataset):
                 continue
         
             basename = filename
+            basename = filename.split('.pkl')[0].split('_rand')[0]
 
             if basename not in feature_dict:
                 feature_dict[basename] = []
@@ -120,8 +121,6 @@ class AssociationDataSet(Dataset):
 
     def __getitem__(self, idx):
         img_locs = self.features[idx]
-
-        assert len(img_locs) == 1
 
         if len(img_locs) > 1:
             rand_ind = np.random.randint(len(img_locs))

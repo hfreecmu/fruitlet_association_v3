@@ -100,8 +100,8 @@ def plot_val_losses(plot_loss_dir, val_losses, val_accs, val_epochs):
 
     plt.clf()
 
-
-def get_boxes(associations, box_seg_im, tag_seg_im, disparities, rows, cols, force_assoc):
+shift_range = 5
+def get_boxes(associations, box_seg_im, tag_seg_im, disparities, rows, cols, force_assoc, rand_shift, width, height):
     out_boxes = []
     is_tag = []
     keypoint_vecs = []
@@ -118,6 +118,28 @@ def get_boxes(associations, box_seg_im, tag_seg_im, disparities, rows, cols, for
         x1 = x0 + box['width']
         y0 = box['top']
         y1 = y0 + box['height']
+
+        area = (x1-x0)*(y1-y0)
+        if area == 0:
+            continue
+
+        if rand_shift:
+            shifts = np.random.randint(-shift_range, shift_range + 1, size=(4,))
+            x0 += shifts[0]
+            x1 += shifts[1]
+            y0 += shifts[2]
+            y1 += shifts[3]
+
+            x0 = np.max([x0, 0])
+            x1 = np.min([x1, width - 1])
+            y0 = np.max([y0, 0])
+            y1 = np.min([y1, height - 1])
+
+            if x1 < x0:
+                x1 = x0
+
+            if y1 < y0:
+                y1 = y0
 
         area = (x1-x0)*(y1-y0)
         if area == 0:
@@ -167,7 +189,7 @@ def get_boxes(associations, box_seg_im, tag_seg_im, disparities, rows, cols, for
     return Boxes(out_boxes), is_tag, keypoint_vecs, detection_ids, assoc_scores, assoc_ids
 
 def extract_descriptors(associations, image_0_path, image_1_path, tag_seg_image_0_path, tag_seg_image_1_path,  
-                        box_seg_im_0_path, box_seg_im_1_path, disparity_0_path, disparity_1_path, feature_predictor, force_assoc=True):
+                        box_seg_im_0_path, box_seg_im_1_path, disparity_0_path, disparity_1_path, feature_predictor, force_assoc=True, rand_shift=False):
     tag_seg_im_0 = cv2.imread(tag_seg_image_0_path, cv2.IMREAD_GRAYSCALE).copy()
     tag_seg_im_1 = cv2.imread(tag_seg_image_1_path, cv2.IMREAD_GRAYSCALE).copy()
     box_seg_im_0 = cv2.imread(box_seg_im_0_path, cv2.IMREAD_GRAYSCALE).copy()
@@ -187,8 +209,11 @@ def extract_descriptors(associations, image_0_path, image_1_path, tag_seg_image_
     row_mat = (row_mat - rows_mean) / rows_std
     col_mat = (col_mat - cols_mean) / cols_std 
 
-    boxes_0, is_tag_0, keypoint_vecs_0, detection_ids_0, assoc_scores_0, assoc_ids_0 = get_boxes(associations['annotations_0'], box_seg_im_0, tag_seg_im_0, disparities_0, row_mat, col_mat, force_assoc)
-    boxes_1, is_tag_1, keypoint_vecs_1, detection_ids_1, assoc_scores_1, assoc_ids_1 = get_boxes(associations['annotations_1'], box_seg_im_1, tag_seg_im_1, disparities_1, row_mat, col_mat, force_assoc)
+    width = im_0.shape[1]
+    height = im_0.shape[0]
+
+    boxes_0, is_tag_0, keypoint_vecs_0, detection_ids_0, assoc_scores_0, assoc_ids_0 = get_boxes(associations['annotations_0'], box_seg_im_0, tag_seg_im_0, disparities_0, row_mat, col_mat, force_assoc, rand_shift, width, height)
+    boxes_1, is_tag_1, keypoint_vecs_1, detection_ids_1, assoc_scores_1, assoc_ids_1 = get_boxes(associations['annotations_1'], box_seg_im_1, tag_seg_im_1, disparities_1, row_mat, col_mat, force_assoc, rand_shift, width, height)
 
     if np.sum(is_tag_0) != 1:
         raise RuntimeError('Not 1 tag: ' + associations['image_0'])
@@ -199,9 +224,6 @@ def extract_descriptors(associations, image_0_path, image_1_path, tag_seg_image_
     with torch.no_grad():
         box_features_0 = feature_predictor(original_image=im_0, boxes=boxes_0)
         box_features_1 = feature_predictor(original_image=im_1, boxes=boxes_1)
-
-    width = im_0.shape[1]
-    height = im_0.shape[0]
 
     is_tag_0 = torch.as_tensor(is_tag_0, dtype=torch.long).cuda()
     is_tag_1 = torch.as_tensor(is_tag_1, dtype=torch.long).cuda()

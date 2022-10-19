@@ -42,7 +42,7 @@ def train(opt):
 
     if opt.val_feature_dir is not None:
         best_loss = None
-        val_dataloader = get_data_loader(opt, opt.val_feature_dir, False, opt.augment)
+        val_dataloader = get_data_loader(opt, opt.val_feature_dir, False, False)
         val_loss_array = []
         val_acc_array = []
         val_epochs = []
