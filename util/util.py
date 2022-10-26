@@ -47,17 +47,26 @@ def write_dict(path_to_write, json_dict):
     with open(path_to_write, 'w') as f:
         json.dump(json_dict, f)
 
-def save_checkpoint(epoch, checkpoint_dir, model, accuracy=None, loss=None, is_best=False):
+def save_checkpoint(epoch, checkpoint_dir, model, accuracy=None, loss=None, is_best_acc=False, is_best_loss=False):
+    is_best = is_best_acc or is_best_loss
     if not is_best:
         path = os.path.join(checkpoint_dir, 'epoch_%d.pth' % epoch)
         print('Saving checkpoint: ' + path)
     else:
-        print('updating best')
-        path = os.path.join(checkpoint_dir, 'best.pth')
+        if is_best_loss:
+            print('updating best loss')
+            path = os.path.join(checkpoint_dir, 'best_loss.pth')
 
-        is_best_json = {'save_epoch': epoch, 'loss': loss, 'accuracy': accuracy}
-        json_path = os.path.join(checkpoint_dir, 'best.json')
-        write_dict(json_path, is_best_json)
+            is_best_json = {'save_epoch': epoch, 'loss': loss, 'accuracy': accuracy}
+            json_path = os.path.join(checkpoint_dir, 'best_loss.json')
+            write_dict(json_path, is_best_json)
+        if is_best_acc:
+            print('updating best acc')
+            path = os.path.join(checkpoint_dir, 'best_acc.pth')
+
+            is_best_json = {'save_epoch': epoch, 'loss': loss, 'accuracy': accuracy}
+            json_path = os.path.join(checkpoint_dir, 'best_acc.json')
+            write_dict(json_path, is_best_json)
     
     torch.save(model.state_dict(), path)
 
@@ -99,6 +108,89 @@ def plot_val_losses(plot_loss_dir, val_losses, val_accs, val_epochs):
     plt.savefig(acc_plot_path)
 
     plt.clf()
+
+from scipy.signal import savgol_filter
+def to_poly(x, y):
+    window = 21
+    order = 2
+    y_sf = savgol_filter(y, window, order)
+    return y_sf
+
+def plot_metrics(accuracies, precicions, recalls, f1s, match_thresholds, save_dir):
+    accuracy_path = os.path.join(save_dir, 'accuracies.png')
+    precision_path = os.path.join(save_dir, 'precicions.png')
+    recall_path = os.path.join(save_dir, 'recalls.png')
+    f1_path = os.path.join(save_dir, 'f1s.png')
+    comb_path = os.path.join(save_dir, 'comb.png')
+    comp_np_path = comb_path.replace('.png', '.npy')
+
+    plt.plot(match_thresholds, accuracies, 'b')
+    plt.xlabel("Matching Thresholds")
+    plt.ylabel("Accuracies")
+    plt.savefig(accuracy_path)
+
+    plt.clf()
+
+    plt.plot(match_thresholds, precicions, 'b')
+    plt.xlabel("Matching Thresholds")
+    plt.ylabel("Precision")
+    plt.savefig(precision_path)
+
+    plt.clf()
+
+    plt.plot(match_thresholds, recalls, 'b')
+    plt.xlabel("Matching Thresholds")
+    plt.ylabel("Recall")
+    plt.savefig(recall_path)
+
+    plt.clf()
+
+    plt.plot(match_thresholds, f1s, 'b')
+    plt.xlabel("Matching Thresholds")
+    plt.ylabel("F1")
+    plt.savefig(f1_path)
+
+    plt.clf()
+
+    plt.plot(match_thresholds, precicions, 'b', label="precision")
+    plt.plot(match_thresholds, recalls, 'r', label="recall")
+    plt.plot(match_thresholds, accuracies, 'purple', label="matching score")
+    plt.legend(loc="lower left")
+    plt.xlabel("Matching Thresholds")
+    plt.xticks(np.arange(min(match_thresholds), max(match_thresholds), 0.1))
+    plt.savefig(comb_path)
+
+    plt.clf()
+
+    comb_np = np.zeros((len(match_thresholds), 4))
+    comb_np[:, 0] = match_thresholds
+    comb_np[:, 1] = accuracies
+    comb_np[:, 2] = precicions
+    comb_np[:, 3] = recalls
+    np.save(comp_np_path, comb_np)
+
+def arange_like(x, dim: int):
+    return x.new_ones(x.shape[dim]).cumsum(0) - 1  # traceable in 1.1
+
+def extract_matches(scores, match_threshold):
+    max0, max1 = scores[:, :-1, :-1].max(2), scores[:, :-1, :-1].max(1)
+    indices0, indices1 = max0.indices, max1.indices
+    mutual0 = arange_like(indices0, 1)[None] == indices1.gather(1, indices0)
+    mutual1 = arange_like(indices1, 1)[None] == indices0.gather(1, indices1)
+    zero = scores.new_tensor(0)
+    mscores0 = torch.where(mutual0, max0.values.exp(), zero)
+    mscores1 = torch.where(mutual1, mscores0.gather(1, indices1), zero)
+    valid0 = mutual0 & (mscores0 > match_threshold)
+    valid1 = mutual1 & valid0.gather(1, indices1)
+    indices0 = torch.where(valid0, indices0, indices0.new_tensor(-1))
+    indices1 = torch.where(valid1, indices1, indices1.new_tensor(-1))
+
+    return {
+        'matches0': indices0, # use -1 for invalid match
+        'matches1': indices1, # use -1 for invalid match
+        'matching_scores0': mscores0,
+        'matching_scores1': mscores1,
+    }
 
 shift_range = 5
 def get_boxes(associations, box_seg_im, tag_seg_im, disparities, rows, cols, force_assoc, rand_shift, width, height):

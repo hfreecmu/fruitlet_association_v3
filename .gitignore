@@ -5,6 +5,7 @@ checkpoints/*
 inference_results/*
 exps/*
 datasets/*
+metrics/*
 
 *.pem
 

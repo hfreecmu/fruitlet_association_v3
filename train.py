@@ -20,7 +20,7 @@ def parse_args():
     parser.add_argument('--checkpoint_dir', default='./checkpoints')
     parser.add_argument('--plot_loss', type=int, default=1)
     parser.add_argument('--plot_loss_dir', default='./loss_plots')
-    parser.add_argument('--match_thresh', type=float, default=0.6)
+    parser.add_argument('--match_thresh', type=float, default=0.5)
 
     parser.add_argument('--augment', action='store_true')
 
@@ -28,7 +28,7 @@ def parse_args():
     return args
 
 def get_model(opt):
-    config = {'match_threshold': opt.match_thresh}
+    config = {}
     model = FruitletAssociator(config)
     model = model.to(util.device)
 
@@ -42,6 +42,8 @@ def train(opt):
 
     if opt.val_feature_dir is not None:
         best_loss = None
+        best_acc = None
+
         val_dataloader = get_data_loader(opt, opt.val_feature_dir, False, False)
         val_loss_array = []
         val_acc_array = []
@@ -162,7 +164,7 @@ def train(opt):
                 data['is_tag'] = [batch_is_tag_0, batch_is_tag_1]
                 data['assoc_scores'] = [batch_assoc_scores_0, batch_assoc_scores_1]
                 data['M'] = batch_M
-                data['return_matches'] = False
+                data['return_scores'] = False
                 data['return_losses'] = True
 
                 res = model(data)
@@ -207,9 +209,8 @@ def train(opt):
 
             with torch.no_grad():
                 val_losses = 0
-                num_correct = 0
-                num_incorrect = 0
-                num_total = 0
+
+                match_scores = []
                 for batch in val_dataloader:
                     descs, kpts, width, height, is_tag, assoc_scores, M, _, _ = batch
 
@@ -225,57 +226,58 @@ def train(opt):
                     data['is_tag'] = is_tag
                     data['assoc_scores'] = assoc_scores
                     data['M'] = M
-                    data['return_matches'] = True
+                    data['return_scores'] = True
                     data['return_losses'] = True
 
                     res = model(data)
 
-                    indices0 = res['matches0'][0].detach().cpu().numpy()
-                    indices1 = res['matches1'][0].detach().cpu().numpy()
+                    matches = util.extract_matches(res['scores'], opt.match_thresh)
+                    indices0 = matches['matches0'][0].detach().cpu().numpy()
+                    indices1 = matches['matches1'][0].detach().cpu().numpy()
 
-                    match_dict_0 = {}
-                    match_dict_1 = {}
+                    num_single_true_pos = 0
+                    num_single_false_pos = 0
+                    num_single_true_neg = 0
+                    num_single_false_neg = 0
+
                     M = M[0].detach().cpu().numpy()
                     for j in range(M.shape[0]):
                         ind_0, ind_1 = M[j]
-                        match_dict_0[ind_0] = ind_1
-                        match_dict_1[ind_1] = ind_0
-
-                    for j in range(indices0.shape[0]):
-                        if indices0[j] == -1:
-                            if j in match_dict_0:
-                                num_incorrect += 1
-                                num_total += 1
-                            else:
-                                #don't care
-                                pass
-                        else:
-                            if indices1[indices0[j]] != j:
+                        #two way match, both correct
+                        if indices0[ind_0] == ind_1:
+                            if indices1[ind_1] != ind_0:
                                 raise RuntimeError('Why here, should not happen')
-                            if j in match_dict_0:
-                                if indices0[j] != match_dict_0[j]:
-                                    num_incorrect += 1
-                                else:
-                                    num_correct += 1
-                                num_total += 1
+                            num_single_true_pos += 2
+                        else :
+                            if indices0[ind_0] == -1:
+                                #matched to negative
+                                num_single_false_neg += 1
                             else:
-                                #don't care
-                                pass
+                                #matched to incorrect positive
+                                num_single_false_pos += 1
 
-                    for j in range(indices1.shape[0]):
-                        if indices1[j] == -1:
-                            if j in match_dict_1:
-                                num_incorrect += 1
-                                num_total += 1
+                            if indices1[ind_1] == -1:
+                                #matched to negative
+                                num_single_false_neg += 1
                             else:
-                                #don't care
-                                pass
+                                #matched to incorrect positive
+                                num_single_false_pos += 1
+
+                    num_single_correct = num_single_true_pos + num_single_true_neg
+                    num_single_total = num_single_true_pos + num_single_true_neg + num_single_false_pos + num_single_false_neg
+
+                    if num_single_correct == 0:
+                        match_score = 0
+                    else:
+                        match_score = num_single_correct / num_single_total
+
+                    match_scores.append(match_score)
 
                     val_loss = torch.mean(res['losses'])
                     val_losses += val_loss.item()                
 
                 val_losses = val_losses / len(val_dataloader)
-                accuracy = num_correct / num_total
+                accuracy = np.mean(match_scores)
 
                 val_loss_array.append(val_losses)
                 val_acc_array.append(accuracy)
@@ -285,7 +287,11 @@ def train(opt):
 
             if (best_loss is None) or (val_losses < best_loss):
                 best_loss = val_losses
-                util.save_checkpoint(save_epoch, opt.checkpoint_dir, model, accuracy=accuracy, loss=val_losses, is_best=True)
+                util.save_checkpoint(save_epoch, opt.checkpoint_dir, model, accuracy=accuracy, loss=best_loss, is_best_loss=True)
+
+            if (best_acc is None) or (accuracy > best_acc):
+                best_acc = accuracy
+                util.save_checkpoint(save_epoch, opt.checkpoint_dir, model, accuracy=accuracy, loss=best_loss, is_best_acc=True)
 
             model.train()
             print('done validation')

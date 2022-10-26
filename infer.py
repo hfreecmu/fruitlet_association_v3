@@ -15,16 +15,43 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--feature_dir', required=True)
     parser.add_argument('--checkpoint_path', required=True)
-    parser.add_argument('--match_thresh', type=float, default=0.6)
+    parser.add_argument('--match_thresholds', type=str, default="0.6")
     parser.add_argument('--vis', action='store_true')
     parser.add_argument('--vis_assoc_dir', default=None)
     parser.add_argument('--vis_dir', default=None)
+    parser.add_argument('--return_metrics', action='store_true')
+    parser.add_argument('--return_metrics_range', action='store_true')
+    parser.add_argument('--return_metrics_dir', default=None)
 
     args = parser.parse_args()
     return args
 
+def parse_match_thresholds(opt):
+    match_thresholds = opt.match_thresholds.split(';')
+    for i in range(len(match_thresholds)):
+            match_thresholds[i] = float(match_thresholds[i])
+
+    if opt.return_metrics_range:
+        assert len(match_thresholds) == 3
+        assert match_thresholds[1] > 0
+        assert match_thresholds[2] >= match_thresholds[0]
+        start = match_thresholds[0]
+        inc = match_thresholds[1]
+        end = match_thresholds[2]
+        
+        val = start
+        new_match_thresholds = [val]
+        while val + inc < end:
+            val = val + inc
+            new_match_thresholds.append(val) 
+
+        match_thresholds = new_match_thresholds
+
+    opt.match_thresholds = match_thresholds
+    return opt
+
 def get_model(opt):
-    config = {'match_threshold': opt.match_thresh}
+    config = {}
     model = FruitletAssociator(config)
     model = model.to(util.device)
 
@@ -129,10 +156,11 @@ def infer(opt):
     model.load_state_dict(torch.load(opt.checkpoint_path))
     model.eval()
 
-    num_correct = 0
-    num_incorrect = 0
-    num_true_pos = 0
-    num_total = 0
+    num_true_pos = [0]*len(opt.match_thresholds)
+    num_false_pos = [0]*len(opt.match_thresholds)
+    num_true_neg = [0]*len(opt.match_thresholds)
+    num_false_neg = [0]*len(opt.match_thresholds)
+    match_scores = [None]*len(opt.match_thresholds)
 
     with torch.no_grad():
         for batch in dataloader:
@@ -150,69 +178,111 @@ def infer(opt):
             data['is_tag'] = is_tag
             data['assoc_scores'] = assoc_scores
             data['M'] = M
-            data['return_matches'] = True
-            data['return_losses'] = True
+            data['return_scores'] = True
+            data['return_losses'] = False
 
             res = model(data)
 
-            indices0 = res['matches0'][0].detach().cpu().numpy()
-            indices1 = res['matches1'][0].detach().cpu().numpy()
-
-            match_dict_0 = {}
-            match_dict_1 = {}
             M = M[0].detach().cpu().numpy()
-            for j in range(M.shape[0]):
-                ind_0, ind_1 = M[j]
-                match_dict_0[ind_0] = ind_1
-                match_dict_1[ind_1] = ind_0
+            for mt_ind in range(len(opt.match_thresholds)):
+                match_thresh = opt.match_thresholds[mt_ind]
+                matches = util.extract_matches(res['scores'], match_thresh)
+                indices0 = matches['matches0'][0].detach().cpu().numpy()
+                indices1 = matches['matches1'][0].detach().cpu().numpy()
 
-            for j in range(indices0.shape[0]):
-                if indices0[j] == -1:
-                    if j in match_dict_0:
-                        num_incorrect += 1
-                        num_total += 1
-                    else:
-                        #don't care
-                        pass
-                else:
-                    if indices1[indices0[j]] != j:
-                        raise RuntimeError('Why here, should not happen')
-                    if j in match_dict_0:
-                        if indices0[j] != match_dict_0[j]:
-                            num_incorrect += 1
+                num_single_true_pos = 0
+                num_single_false_pos = 0
+                num_single_true_neg = 0
+                num_single_false_neg = 0
+
+                #TODO I know this will change when I properly add I and J
+                for j in range(M.shape[0]):
+                    ind_0, ind_1 = M[j]
+                    #two way match, both correct
+                    if indices0[ind_0] == ind_1:
+                        if indices1[ind_1] != ind_0:
+                            raise RuntimeError('Why here, should not happen')
+                        num_true_pos[mt_ind] += 2
+                        num_single_true_pos += 2
+                    else :
+                        if indices0[ind_0] == -1:
+                            #matched to negative
+                            num_false_neg[mt_ind] += 1
+                            num_single_false_neg += 1
                         else:
-                            num_correct += 1
-                        num_total += 1
-                    else:
-                        #don't care
-                        pass
+                            #matched to incorrect positive
+                            num_false_pos[mt_ind] += 1
+                            num_single_false_pos += 1
 
-            for j in range(indices1.shape[0]):
-                if indices1[j] == -1:
-                    if j in match_dict_1:
-                        num_incorrect += 1
-                        num_total += 1
-                    else:
-                        #don't care
-                        pass
+                        if indices1[ind_1] == -1:
+                            #matched to negative
+                            num_false_neg[mt_ind] += 1
+                            num_single_false_neg += 1
+                        else:
+                            #matched to incorrect positive
+                            num_false_pos[mt_ind] += 1
+                            num_single_false_pos += 1
+
+                num_single_correct = num_single_true_pos + num_single_true_neg
+                num_single_total = num_single_true_pos + num_single_true_neg + num_single_false_pos + num_single_false_neg
+                if num_single_correct == 0:
+                    match_score = 0
+                else:
+                    match_score = num_single_correct / num_single_total
+
+                if match_scores[mt_ind] is None:
+                    match_scores[mt_ind] = []
+                match_scores[mt_ind].append(match_score)
             
-            if opt.vis:
-                detection_ids_0 = detection_ids[0][0].detach().cpu().numpy()
-                detection_ids_1 = detection_ids[1][0].detach().cpu().numpy()
+                if opt.vis:
+                    detection_ids_0 = detection_ids[0][0].detach().cpu().numpy()
+                    detection_ids_1 = detection_ids[1][0].detach().cpu().numpy()
 
-                is_tag_0 = is_tag[0][0].detach().cpu().numpy()
-                is_tag_1 = is_tag[1][0].detach().cpu().numpy()
+                    is_tag_0 = is_tag[0][0].detach().cpu().numpy()
+                    is_tag_1 = is_tag[1][0].detach().cpu().numpy()
 
-                basename = os.path.basename(feature_path[0]).split('.pkl')[0]
-                assoc_path = os.path.join(opt.vis_assoc_dir, basename + '.json')
+                    basename = os.path.basename(feature_path[0]).split('.pkl')[0]
+                    assoc_path = os.path.join(opt.vis_assoc_dir, basename + '.json')
                 
-                vis_path = os.path.join(opt.vis_dir, basename + '.png')
-                vis(indices0, indices1, detection_ids_0, detection_ids_1, is_tag_0, is_tag_1, M, assoc_path, vis_path)
+                    vis_path = os.path.join(opt.vis_dir, basename + '_' + str(match_thresh) + '.png')
+                    vis(indices0, indices1, detection_ids_0, detection_ids_1, is_tag_0, is_tag_1, M, assoc_path, vis_path)
     
-    accuracy = num_correct / num_total
-    print('Accuracy is: ', accuracy)
+    if opt.return_metrics:
+        accuracies = []
+        precicions = []
+        recalls = []
+        f1s = []
+    for mt_ind in range(len(opt.match_thresholds)):
+        num_correct = num_true_pos[mt_ind] + num_true_neg[mt_ind] 
+        num_total = num_true_pos[mt_ind]  + num_true_neg[mt_ind]  + num_false_pos[mt_ind] + num_false_neg[mt_ind] 
+        num_total_pred_pos = num_true_pos[mt_ind]  + num_false_pos[mt_ind] 
+        num_total_gt_pos = num_true_pos[mt_ind]  + num_false_neg[mt_ind] 
+
+        #accuracy = num_correct / num_total
+        accuracy = np.mean(match_scores[mt_ind])
+        precision = num_true_pos[mt_ind] / num_total_pred_pos
+        recall = num_true_pos[mt_ind] / num_total_gt_pos
+        f1 = 2*precision*recall/(precision+recall)
+
+        if not opt.return_metrics:
+            print('Match Thresh: ', opt.match_thresholds[mt_ind])
+            print('Accuracy is: ', accuracy)
+            print('Precision is: ', precision)
+            print('Recall is: ', recall)
+            print('F1: ', f1)
+        else:
+            accuracies.append(accuracy)
+            precicions.append(precision)
+            recalls.append(recall)
+            f1s.append(f1)
+
+    if opt.return_metrics:
+        util.plot_metrics(accuracies, precicions, recalls, f1s, opt.match_thresholds, opt.return_metrics_dir)
+
 
 if __name__ == "__main__":
     opt = parse_args()
+
+    opt = parse_match_thresholds(opt)
 
     infer(opt)
