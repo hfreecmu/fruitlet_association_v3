@@ -164,7 +164,7 @@ def infer(opt):
 
     with torch.no_grad():
         for batch in dataloader:
-            descs, kpts, width, height, is_tag, assoc_scores, M, detection_ids, feature_path = batch
+            descs, kpts, width, height, is_tag, assoc_scores, M, detection_ids, feature_path, _ = batch
 
             descs = [[descs[0][0]], [descs[1][0]]]
             kpts = [[kpts[0][0]], [kpts[1][0]]]

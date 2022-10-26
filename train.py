@@ -77,7 +77,12 @@ def train(opt):
         batch_M = []
 
         for i, data in enumerate(dataloader):
-            descs, kpts, width, height, is_tag, assoc_scores, M, _, _ = data
+            descs, kpts, width, height, is_tag, assoc_scores, M, _, _, succ = data
+
+            if not succ[0]:
+                print('No training data')
+                continue
+                
 
             descs = [descs[0][0], descs[1][0]]
             kpts = [kpts[0][0], kpts[1][0]]
@@ -212,7 +217,7 @@ def train(opt):
 
                 match_scores = []
                 for batch in val_dataloader:
-                    descs, kpts, width, height, is_tag, assoc_scores, M, _, _ = batch
+                    descs, kpts, width, height, is_tag, assoc_scores, M, _, _, _ = batch
 
                     descs = [[descs[0][0]], [descs[1][0]]]
                     kpts = [[kpts[0][0]], [kpts[1][0]]]

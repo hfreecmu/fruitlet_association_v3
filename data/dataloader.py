@@ -167,10 +167,12 @@ class AssociationDataSet(Dataset):
             if found:
                 M.append([i, match_ind])
 
-        assert len(M) > 0
+        succ = True
+        if len(M) == 0:
+            succ = False
         M = torch.as_tensor(M, dtype=torch.long).cuda()
 
-        return descs, kpts, width, height, is_tag, assoc_scores, M, detection_ids, img_loc
+        return descs, kpts, width, height, is_tag, assoc_scores, M, detection_ids, img_loc, succ
 
 def get_data_loader(opt, feature_dir, is_train, augment=False):
 
