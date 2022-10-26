@@ -11,7 +11,7 @@ def parse_args():
     """Parse input arguments."""
     parser = argparse.ArgumentParser()
     parser.add_argument('--feature_dir', required=True)
-    parser.add_argument('--num_epochs', type=int, default=128)
+    parser.add_argument('--num_epochs', type=int, default=50)
     parser.add_argument('--lr', type=float, default=0.0001)
     parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--val', type=int, default=1)

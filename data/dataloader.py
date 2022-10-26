@@ -97,15 +97,19 @@ def augment(descs, kpts, is_tag, assoc_scores, detection_ids, assoc_ids):
 class AssociationDataSet(Dataset):
     """Load images under folders"""
     def __init__(self, feature_dir, augment):
-        self.features = self.get_features(feature_dir)
+        self.features = self.get_features(feature_dir, augment)
         self.augment = augment
 
-    def get_features(self, feature_dir):
+    def get_features(self, feature_dir, augment):
         feature_dict = {}
         for filename in os.listdir(feature_dir):
             if not filename.endswith('.pkl'):
                 continue
         
+            if not augment:
+                if 'rand' in filename:
+                    continue
+
             basename = filename
             basename = filename.split('.pkl')[0].split('_rand')[0]
 
@@ -121,6 +125,9 @@ class AssociationDataSet(Dataset):
 
     def __getitem__(self, idx):
         img_locs = self.features[idx]
+
+        if not self.augment:
+            assert len(img_locs) == 1
 
         if len(img_locs) > 1:
             rand_ind = np.random.randint(len(img_locs))
