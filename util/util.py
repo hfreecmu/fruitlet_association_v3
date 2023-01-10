@@ -156,7 +156,7 @@ def plot_metrics(accuracies, precicions, recalls, f1s, match_thresholds, save_di
     plt.plot(match_thresholds, recalls, 'r', label="recall")
     plt.plot(match_thresholds, accuracies, 'purple', label="matching score")
     plt.legend(loc="lower left")
-    plt.xlabel("Matching Thresholds")
+    #plt.xlabel("Matching Thresholds")
     plt.xticks(np.arange(min(match_thresholds), max(match_thresholds) + 0.1, 0.1))
     plt.savefig(comb_path)
 
